@@ -5,6 +5,24 @@ import seaborn as sns
 from itertools import permutations
 import logging
 import random
+from tqdm import tqdm
+
+
+def transposition_dists(a, b):
+    """return the a vector of the same length as a and b where the value of the
+    i-th element is the absolute value of the transposition distance between the
+    i-th element of a and its corresponding value in b
+
+    Args:
+        a (object): numpy array
+        b (object): numpy array
+
+    Returns:
+        object: numpy array of transposition distances
+    """
+    c = np.array([np.where(a == i) for i in b]).flatten()
+    d = np.arange(len(c))
+    return np.abs(c - d)
 
 
 class WMModel:
@@ -94,7 +112,7 @@ class WMModel:
         logging.debug(f"delta w shape: {delta_w.shape}")
         self.weights += delta_w
 
-    def do_one_trial(self, seq, target):
+    def do_one_trial(self, seq, target, compute_metrics=False):
         example = self.seq_to_example(seq)
         logging.debug(f"Example: {example.seq}")
 
@@ -110,16 +128,21 @@ class WMModel:
         logging.debug(f"Prediction: {self.lookup[pred_idx, :]}")
         result["pred_idx"] = pred_idx
         result["pred"] = self.lookup[pred_idx, :]
-        result["pos_acc"] = example.seq == result["pred"]
+
+        if compute_metrics:
+            result["pos_acc"] = example.seq == result["pred"]
+            result["transposition_dists"] = transposition_dists(
+                example.seq, result["pred"]
+            )
         return result
 
-    def plot_weights(self):
+    def plot_weights(self, filename="img/weights.png"):
         plt.clf()
         plt.figure(figsize=(12, 5), dpi=150)
         p = sns.heatmap(self.weights)
-        plt.savefig("img/weights.png")
+        plt.savefig(filename)
 
-    def plot_hidden_units(self, seq):
+    def plot_hidden_units(self, seq, filename="img/hidden_units.png"):
         example = self.seq_to_example(seq)
         self.clear_units()
         for i in range(example.item_vectors.shape[0]):
@@ -129,16 +152,18 @@ class WMModel:
         plt.clf()
         plt.figure(dpi=150)
         p = sns.heatmap(self.hidden.reshape((self.N, self.R)))
-        plt.savefig("img/hidden_units.png")
+        plt.savefig(filename)
 
-    def save_weights(self):
-        np.save("weights.npy", self.weights)
+    def save_weights(self, weights_file):
+        np.save(weights_file, self.weights)
 
-    def load_weights(self):
-        self.weights = np.load("weights.npy")
+    def load_weights(self, weights_file):
+        self.weights = np.load(weights_file)
 
 
-def test():
+def test_basic():
+    # test basic forward and backward functions
+
     logging.basicConfig(level=logging.DEBUG)
     model = WMModel(6, 6, 0.001, delta=0.5, sigma=0.5, nu=0.09)
 
@@ -153,48 +178,8 @@ def test():
     result = model.do_one_trial(seq, target)
 
 
-def test2():
-    logging.basicConfig(level=logging.INFO)
-    model = WMModel(6, 6, 0.001, delta=0.4, sigma=0.5, nu=0.0)
-
-    base_seq = [0, 1, 2, 3, 4, 5]
-    S = math.factorial(len(base_seq))
-
-    # indices: for shuffling the input
-    idxs = np.arange(S)
-    random.shuffle(idxs)
-
-    # sequences: all permutations of the sequence
-    sequences = np.array([list(x) for x in permutations(base_seq)])
-    sequences = sequences[idxs]
-
-    # targets: one-hot vectors of length N!
-    targets = np.zeros((S, S))
-    targets[np.arange(S), np.arange(S)] = 1
-    targets = targets[idxs]
-
-    n_epochs = 50
-
-    for epoch in range(n_epochs):
-        for i in range(len(sequences)):
-            model.do_one_trial(sequences[i], targets[i].reshape(1, -1))
-
-    pos_accs = []
-    for i in range(len(sequences)):
-        result = model.do_one_trial(sequences[i], targets[i].reshape(1, -1))
-        logging.info(f"{sequences[i]} -> {result['pred']}")
-        pos_accs.append(result["pos_acc"])
-
-    # model.nu = 0.09
-    model.plot_hidden_units([3, 4, 5, 0, 1, 2])
-    model.plot_weights()
-    model.save_weights()
-
-    pos_accs = np.array(pos_accs).mean(axis=0)
-    logging.info(f"Positional Accuracies: {pos_accs}")
-
-
-def test3():
+def test_item_rank_vectors():
+    # test that item and rank vectors are computed correctly
     logging.basicConfig(level=logging.DEBUG)
     model = WMModel(6, 6, 0.001, delta=0.5, sigma=0.5, nu=0.0)
     seq = [0, 1, 2, 3, 4, 5]
@@ -203,14 +188,58 @@ def test3():
     logging.info(e.rank_vectors)
 
 
-def test4():
+def plot_model(weights_file):
+    # test plotting of hidden units and weights
     logging.basicConfig(level=logging.INFO)
     model = WMModel(6, 6)
     seq = [0, 1, 2, 3, 4, 5]
-    model.load_weights()
+    model.load_weights(weights_file)
     model.plot_hidden_units(seq)
     model.plot_weights()
 
 
+def train_model(n_epochs):
+    logging.basicConfig(level=logging.INFO)
+    model = WMModel(6, 6, 0.001, delta=0.4, sigma=0.5, nu=0.0)
+
+    # base sequence, permutations, indices, and targets (one-hot vectors of length N!)
+    base_seq = [0, 1, 2, 3, 4, 5]
+    S = math.factorial(len(base_seq))
+    ordered_sequences = np.array([list(x) for x in permutations(base_seq)])
+    idxs = np.arange(S)
+    ordered_targets = np.zeros((S, S))
+    ordered_targets[np.arange(S), np.arange(S)] = 1
+
+    for _ in tqdm(range(n_epochs)):
+
+        # shuffle the data
+        random.shuffle(idxs)
+        sequences = ordered_sequences[idxs]
+        targets = ordered_targets[idxs]
+
+        for i in range(len(sequences)):
+            model.do_one_trial(sequences[i], targets[i].reshape(1, -1))
+
+    pos_accs = []
+    transposition_dists = []
+    for i in range(len(ordered_sequences)):
+        result = model.do_one_trial(
+            ordered_sequences[i],
+            ordered_targets[i].reshape(1, -1),
+            compute_metrics=True,
+        )
+        logging.info(f"{ordered_sequences[i]} -> {result['pred']}")
+        pos_accs.append(result["pos_acc"])
+        transposition_dists.append(result["transposition_dists"])
+
+    # model.nu = 0.09
+    model.plot_hidden_units([0, 1, 2, 3, 4, 5], f"img/hidden_units_012345.png")
+    model.plot_weights(f"img/weights_{n_epochs}.png")
+    model.save_weights(f"weights/weights_{n_epochs}_epochs.npy")
+
+    pos_accs = np.array(pos_accs).mean(axis=0)
+    logging.info(f"Positional Accuracies: {pos_accs}")
+
+
 if __name__ == "__main__":
-    test2()
+    train_model(n_epochs=250)
