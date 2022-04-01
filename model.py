@@ -16,7 +16,17 @@ class WMModel:
         def __init__(self, seq):
             self.seq = np.array(seq)
 
-    def __init__(self, N, R, alpha, delta, sigma, nu):
+    def __init__(self, N, R, alpha=0.001, delta=0.5, sigma=0.5, nu=0.0):
+        """create instance of a working memory model
+
+        Args:
+            N (int): number of unique items that can be represented
+            R (int): number of ranks that can be represented
+            alpha (float, optional): learning rate. Defaults to 0.001.
+            delta (float, optional): dissimilarity between high-responsive items and low-responsive items. Defaults to 0.5.
+            sigma (float, optional): scaling constant. Defaults to 0.5.
+            nu (float, optional): random noise variance. Defaults to 0.0.
+        """
         self.N = N
         self.R = R
         self.alpha = alpha
@@ -29,15 +39,18 @@ class WMModel:
         self.lookup = np.array([list(x) for x in permutations(range(N))])
 
     def seq_to_example(self, seq):
+
         example = self.Example(seq)
+
+        # example.item_vectors = np.full((example.seq.size, example.seq.max() + 1), 0)
+        # example.item_vectors[np.arange(example.seq.size), example.seq] = 1
+        # example.rank_vectors = np.zeros((example.seq.size, example.seq.size))
+        # example.rank_vectors[np.arange(example.seq.size), np.arange(example.seq.size)] = 1
 
         example.item_vectors = np.full(
             (example.seq.size, example.seq.max() + 1), 1 - self.delta
         )
         example.item_vectors[np.arange(example.seq.size), example.seq] = 1
-
-        # self.rank_vectors = np.zeros((self.seq.size, self.seq.size))
-        # self.rank_vectors[np.arange(self.seq.size), np.arange(self.seq.size)] = 1
 
         example.rank_vectors = []
         for i in range(example.seq.size):
@@ -87,8 +100,8 @@ class WMModel:
 
         self.clear_units()
         for i in range(example.item_vectors.shape[0]):
-            item_vector = example.item_vectors[i, :].reshape(1, -1)
-            rank_vector = example.rank_vectors[i, :].reshape(1, -1)
+            item_vector = example.item_vectors[i].reshape(1, -1)
+            rank_vector = example.rank_vectors[i].reshape(1, -1)
             self.step(item_vector, rank_vector)
         self.backward(target)
 
@@ -102,7 +115,7 @@ class WMModel:
 
     def plot_weights(self):
         plt.clf()
-        plt.figure(dpi=150)
+        plt.figure(figsize=(12, 5), dpi=150)
         p = sns.heatmap(self.weights)
         plt.savefig("img/weights.png")
 
@@ -110,16 +123,23 @@ class WMModel:
         example = self.seq_to_example(seq)
         self.clear_units()
         for i in range(example.item_vectors.shape[0]):
-            item_vector = example.item_vectors[i, :].reshape(1, -1)
-            rank_vector = example.rank_vectors[i, :].reshape(1, -1)
+            item_vector = example.item_vectors[i].reshape(1, -1)
+            rank_vector = example.rank_vectors[i].reshape(1, -1)
             self.step(item_vector, rank_vector)
         plt.clf()
         plt.figure(dpi=150)
         p = sns.heatmap(self.hidden.reshape((self.N, self.R)))
         plt.savefig("img/hidden_units.png")
 
+    def save_weights(self):
+        np.save("weights.npy", self.weights)
+
+    def load_weights(self):
+        self.weights = np.load("weights.npy")
+
 
 def test():
+    logging.basicConfig(level=logging.DEBUG)
     model = WMModel(6, 6, 0.001, delta=0.5, sigma=0.5, nu=0.09)
 
     seq = [0, 1, 2, 3, 4, 5]
@@ -134,8 +154,8 @@ def test():
 
 
 def test2():
-
-    model = WMModel(6, 6, 0.001, delta=0.9, sigma=0.5, nu=0.0)
+    logging.basicConfig(level=logging.INFO)
+    model = WMModel(6, 6, 0.001, delta=0.4, sigma=0.5, nu=0.0)
 
     base_seq = [0, 1, 2, 3, 4, 5]
     S = math.factorial(len(base_seq))
@@ -153,27 +173,29 @@ def test2():
     targets[np.arange(S), np.arange(S)] = 1
     targets = targets[idxs]
 
-    n_epochs = 100
+    n_epochs = 50
 
     for epoch in range(n_epochs):
         for i in range(len(sequences)):
-            model.do_one_trial(sequences[i], targets[i, :].reshape(1, -1))
+            model.do_one_trial(sequences[i], targets[i].reshape(1, -1))
 
     pos_accs = []
     for i in range(len(sequences)):
-        result = model.do_one_trial(sequences[i], targets[i, :].reshape(1, -1))
+        result = model.do_one_trial(sequences[i], targets[i].reshape(1, -1))
         logging.info(f"{sequences[i]} -> {result['pred']}")
         pos_accs.append(result["pos_acc"])
 
     # model.nu = 0.09
     model.plot_hidden_units([3, 4, 5, 0, 1, 2])
     model.plot_weights()
+    model.save_weights()
 
     pos_accs = np.array(pos_accs).mean(axis=0)
     logging.info(f"Positional Accuracies: {pos_accs}")
 
 
 def test3():
+    logging.basicConfig(level=logging.DEBUG)
     model = WMModel(6, 6, 0.001, delta=0.5, sigma=0.5, nu=0.0)
     seq = [0, 1, 2, 3, 4, 5]
     e = model.seq_to_example(seq)
@@ -181,6 +203,14 @@ def test3():
     logging.info(e.rank_vectors)
 
 
-if __name__ == "__main__":
+def test4():
     logging.basicConfig(level=logging.INFO)
+    model = WMModel(6, 6)
+    seq = [0, 1, 2, 3, 4, 5]
+    model.load_weights()
+    model.plot_hidden_units(seq)
+    model.plot_weights()
+
+
+if __name__ == "__main__":
     test2()
