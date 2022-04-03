@@ -201,6 +201,7 @@ def plot_model(weights_file):
 def train_model(n_epochs):
     logging.basicConfig(level=logging.INFO)
     model = WMModel(6, 6, 0.001, delta=0.4, sigma=0.5, nu=0.0)
+    model.load_weights("weights/weights_250_epochs.npy")
 
     # base sequence, permutations, indices, and targets (one-hot vectors of length N!)
     base_seq = [0, 1, 2, 3, 4, 5]
@@ -210,7 +211,7 @@ def train_model(n_epochs):
     ordered_targets = np.zeros((S, S))
     ordered_targets[np.arange(S), np.arange(S)] = 1
 
-    for _ in tqdm(range(n_epochs)):
+    for n_epoch in tqdm(range(250, n_epochs)):
 
         # shuffle the data
         random.shuffle(idxs)
@@ -219,6 +220,10 @@ def train_model(n_epochs):
 
         for i in range(len(sequences)):
             model.do_one_trial(sequences[i], targets[i].reshape(1, -1))
+
+        if (n_epoch + 1) % 250 == 0:
+            model.plot_weights(f"img/weights_{n_epoch + 1}.png")
+            model.save_weights(f"weights/weights_{n_epoch + 1}_epochs.npy")
 
     pos_accs = []
     transposition_dists = []
@@ -242,4 +247,4 @@ def train_model(n_epochs):
 
 
 if __name__ == "__main__":
-    train_model(n_epochs=250)
+    train_model(n_epochs=2500)
